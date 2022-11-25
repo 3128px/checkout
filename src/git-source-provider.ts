@@ -9,8 +9,8 @@ import * as path from 'path'
 import * as refHelper from './ref-helper'
 import * as stateHelper from './state-helper'
 import * as urlHelper from './url-helper'
-import {IGitCommandManager} from './git-command-manager'
-import {IGitSourceSettings} from './git-source-settings'
+import { IGitCommandManager } from './git-command-manager'
+import { IGitSourceSettings } from './git-source-settings'
 
 export async function getSource(settings: IGitSourceSettings): Promise<void> {
   // Repository URL
@@ -167,6 +167,9 @@ export async function getSource(settings: IGitSourceSettings): Promise<void> {
         refSpec = refHelper.getRefSpec(settings.ref, settings.commit)
         await git.fetch(refSpec)
       }
+    }
+    if (settings.circle) {
+      await git.fetchAlaCircle(refFromContextRef(settings.ref))
     } else {
       const refSpec = refHelper.getRefSpec(settings.ref, settings.commit)
       await git.fetch(refSpec, settings.fetchDepth)
@@ -193,7 +196,12 @@ export async function getSource(settings: IGitSourceSettings): Promise<void> {
 
     // Checkout
     core.startGroup('Checking out the ref')
-    await git.checkout(checkoutInfo.ref, checkoutInfo.startPoint)
+    if (settings.circle) {
+      const ref = refFromContextRef(settings.ref)
+      await git.checkout(ref, settings.commit)
+    } else {
+      await git.checkout(checkoutInfo.ref, checkoutInfo.startPoint)
+    }
     core.endGroup()
 
     // Submodules
@@ -308,4 +316,10 @@ async function getGitCommandManager(
     // Otherwise fallback to REST API
     return undefined
   }
+}
+
+function refFromContextRef(contextRef: string): string {
+  // "refs/pull/3/merge" -> "pull/3/head"
+  // "refs/heads/master" -> "heads/master"
+  return contextRef.replace('refs/', '').replace('/merge', '/head')
 }

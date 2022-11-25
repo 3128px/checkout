@@ -6,7 +6,7 @@ import * as path from 'path'
 import * as refHelper from './ref-helper'
 import * as regexpHelper from './regexp-helper'
 import * as retryHelper from './retry-helper'
-import {GitVersion} from './git-version'
+import { GitVersion } from './git-version'
 
 // Auth header not supported before 2.9
 // Wire protocol v2 not supported before 2.18
@@ -26,6 +26,7 @@ export interface IGitCommandManager {
   ): Promise<void>
   configExists(configKey: string, globalConfig?: boolean): Promise<boolean>
   fetch(refSpec: string[], fetchDepth?: number): Promise<void>
+  fetchAlaCircle(ref: string): Promise<void>
   getDefaultBranch(repositoryUrl: string): Promise<string>
   getWorkingDirectory(): string
   init(): Promise<void>
@@ -66,7 +67,7 @@ class GitCommandManager {
   private workingDirectory = ''
 
   // Private constructor; use createCommandManager()
-  private constructor() {}
+  private constructor() { }
 
   async branchDelete(remote: boolean, branch: string): Promise<void> {
     const args = ['branch', '--delete', '--force']
@@ -191,6 +192,19 @@ class GitCommandManager {
     for (const arg of refSpec) {
       args.push(arg)
     }
+
+    const that = this
+    await retryHelper.execute(async () => {
+      await that.execGit(args)
+    })
+  }
+
+  async fetchAlaCircle(ref: string): Promise<void> {
+    // Construct command similar to the following:
+    // - git fetch --force origin +refs/pull/14408/head:refs/remotes/origin/pull/14408
+    // - git fetch --force origin +refs/heads/master:refs/remotes/origin/master
+    const args = ['-c', 'protocol.version=2', 'fetch', '--force', 'origin']
+    args.push(`+refs/${ref}:refs/remotes/origin/${ref}`)
 
     const that = this
     await retryHelper.execute(async () => {

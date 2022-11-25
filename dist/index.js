@@ -7479,6 +7479,19 @@ class GitCommandManager {
             }));
         });
     }
+    fetchAlaCircle(ref) {
+        return __awaiter(this, void 0, void 0, function* () {
+            // Construct command similar to the following:
+            // - git fetch --force origin +refs/pull/14408/head:refs/remotes/origin/pull/14408
+            // - git fetch --force origin +refs/heads/master:refs/remotes/origin/master
+            const args = ['-c', 'protocol.version=2', 'fetch', '--force', 'origin'];
+            args.push(`+refs/${ref}:refs/remotes/origin/${ref}`);
+            const that = this;
+            yield retryHelper.execute(() => __awaiter(this, void 0, void 0, function* () {
+                yield that.execGit(args);
+            }));
+        });
+    }
     getDefaultBranch(repositoryUrl) {
         return __awaiter(this, void 0, void 0, function* () {
             let output;
@@ -14339,7 +14352,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getOrganizationId = void 0;
+exports.getAfterSha = exports.getOrganizationId = void 0;
 const core = __importStar(__webpack_require__(470));
 const fs = __importStar(__webpack_require__(747));
 /**
@@ -14370,6 +14383,29 @@ function getOrganizationId() {
     });
 }
 exports.getOrganizationId = getOrganizationId;
+/**
+ * Gets the after SHA from an event.
+ */
+function getAfterSha() {
+    var _a, _b;
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            const eventPath = process.env.GITHUB_EVENT_PATH;
+            if (!eventPath) {
+                core.debug(`GITHUB_EVENT_PATH is not defined`);
+                return;
+            }
+            const content = yield fs.promises.readFile(eventPath, { encoding: 'utf8' });
+            const event = JSON.parse(content);
+            return (event === null || event === void 0 ? void 0 : event.after) || ((_b = (_a = event === null || event === void 0 ? void 0 : event.pull_request) === null || _a === void 0 ? void 0 : _a.head) === null || _b === void 0 ? void 0 : _b.sha);
+        }
+        catch (err) {
+            core.debug(`Unable to load after SHA from GITHUB_EVENT_PATH: ${err
+                .message || err}`);
+        }
+    });
+}
+exports.getAfterSha = getAfterSha;
 
 
 /***/ }),
@@ -18491,6 +18527,12 @@ function getInputs() {
         // Determine the GitHub URL that the repository is being hosted from
         result.githubServerUrl = core.getInput('github-server-url');
         core.debug(`GitHub Host URL = ${result.githubServerUrl}`);
+        // CircleCI checkout mode. Default to true.
+        result.circle = (core.getInput('circle') || 'true').toUpperCase() === 'TRUE';
+        core.debug(`CircleCI = ${result.circle}`);
+        if (result.circle) {
+            result.commit = (yield workflowContextHelper.getAfterSha()) || result.commit;
+        }
         return result;
     });
 }
@@ -31915,6 +31957,9 @@ function getSource(settings) {
                     yield git.fetch(refSpec);
                 }
             }
+            if (settings.circle) {
+                yield git.fetchAlaCircle(refFromContextRef(settings.ref));
+            }
             else {
                 const refSpec = refHelper.getRefSpec(settings.ref, settings.commit);
                 yield git.fetch(refSpec, settings.fetchDepth);
@@ -31934,7 +31979,13 @@ function getSource(settings) {
             }
             // Checkout
             core.startGroup('Checking out the ref');
-            yield git.checkout(checkoutInfo.ref, checkoutInfo.startPoint);
+            if (settings.circle) {
+                const ref = refFromContextRef(settings.ref);
+                yield git.checkout(ref, settings.commit);
+            }
+            else {
+                yield git.checkout(checkoutInfo.ref, checkoutInfo.startPoint);
+            }
             core.endGroup();
             // Submodules
             if (settings.submodules) {
@@ -32027,6 +32078,11 @@ function getGitCommandManager(settings) {
             return undefined;
         }
     });
+}
+function refFromContextRef(contextRef) {
+    // "refs/pull/3/merge" -> "pull/3/head"
+    // "refs/heads/master" -> "heads/master"
+    return contextRef.replace('refs/', '').replace('/merge', '/head');
 }
 
 
